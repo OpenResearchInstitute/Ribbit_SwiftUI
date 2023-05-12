@@ -9,9 +9,10 @@ import SwiftUI
 
 @main
 struct RibbitApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
+	@StateObject var state = MyState()
+	var body: some Scene {
+		WindowGroup {
+			ContentView(state: state)
+		}
+	}
 }
