@@ -29,27 +29,6 @@ class MyState: ObservableObject {
 	@Published var showComposer = false
 }
 
-class MeasureRate {
-	var startTime : UInt64 = 0
-	var samplesTotal : UInt64 = 0
-	func printRate(_ count : Int, _ name : String) {
-		let now = DispatchTime.now().uptimeNanoseconds
-		let diff = now - startTime
-		samplesTotal += UInt64(count)
-		if diff > 1_000_000_000 {
-			let n = samplesTotal
-			if startTime > 0 {
-				DispatchQueue.main.async {
-					let rate = (n * 1_000_000_000) / diff
-					print("\(name) rate: \(rate) Hz")
-				}
-			}
-			startTime = now
-			samplesTotal = 0
-		}
-	}
-}
-
 struct ContentView: View {
 	let session = AVAudioSession()
 	let engine = AVAudioEngine()
@@ -77,15 +56,11 @@ struct ContentView: View {
 			return
 		}
 		nodesAttached = true
-		let measureRecording = MeasureRate()
-		let measureResampling = MeasureRate()
 		let desiredFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false)!
 		let inputFormat = engine.inputNode.outputFormat(forBus: 0)
 		let converter = AVAudioConverter(from: inputFormat, to: desiredFormat)!
 		let resampled = AVAudioPCMBuffer(pcmFormat: desiredFormat, frameCapacity: AVAudioFrameCount(desiredFormat.sampleRate))!
-		print("input rate: \(inputFormat.sampleRate)")
-		let sink = AVAudioSinkNode { _, count, list -> OSStatus in
-			measureRecording.printRate(Int(count), "recording")
+		let sink = AVAudioSinkNode { _, _, list -> OSStatus in
 			var haveData = true
 			var error: NSError? = nil
 			converter.convert(to: resampled, error: &error) { _, inputStatus in
@@ -97,14 +72,11 @@ struct ContentView: View {
 				inputStatus.pointee = .noDataNow
 				return nil
 			}
-			measureResampling.printRate(Int(resampled.frameLength), "resampled")
 			return noErr
 		}
 		engine.attach(sink)
 		engine.connect(engine.inputNode, to: sink, format: nil)
-		let measurePlayback = MeasureRate()
 		let source = AVAudioSourceNode { _, _, count, list -> OSStatus in
-			measurePlayback.printRate(Int(count), "playback")
 			return noErr
 		}
 		engine.attach(source)
@@ -128,7 +100,8 @@ struct ContentView: View {
 		do {
 			try session.setPreferredSampleRate(8000)
 		} catch {
-			print("Failed setting preferred sample rate to 8000 Hz")
+			showStatus("Unable to set preferred sample rate")
+			return
 		}
 		do {
 			try session.setActive(true)
