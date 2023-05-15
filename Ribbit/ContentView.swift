@@ -50,6 +50,7 @@ struct ContentView: View {
 	func showStatus(_ status : String) {
 		state.status = status
 	}
+	@State var listening = true
 	@State var nodesAttached = false
 	func setupNodes() {
 		if nodesAttached {
@@ -72,11 +73,36 @@ struct ContentView: View {
 				inputStatus.pointee = .noDataNow
 				return nil
 			}
+			if listening && feedDecoder(resampled.floatChannelData![0], Int32(resampled.frameLength)) {
+				DispatchQueue.main.async {
+					var payload = [CChar](repeating: 0, count: 257)
+					let result = fetchDecoder(&payload)
+					if result < 0 {
+						showStatus("Decoding failed")
+					} else {
+						var message = "Payload unknown"
+						if let msg = String(cString: payload, encoding: .utf8) {
+							message = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+						}
+						showStatus("\(message)\n\n(\(result) bit flip\(result == 1 ? "" : "s") corrected)")
+					}
+				}
+			}
 			return noErr
 		}
 		engine.attach(sink)
 		engine.connect(engine.inputNode, to: sink, format: nil)
 		let source = AVAudioSourceNode { _, _, count, list -> OSStatus in
+			if !listening {
+				let channels = UnsafeMutableAudioBufferListPointer(list)
+				let first: UnsafeMutableBufferPointer<Float> = UnsafeMutableBufferPointer(channels[0])
+				if readEncoder(first.baseAddress, Int32(count)) {
+					listening = true
+					DispatchQueue.main.async {
+						showStatus("Listening")
+					}
+				}
+			}
 			return noErr
 		}
 		engine.attach(source)
@@ -110,6 +136,14 @@ struct ContentView: View {
 			return
 		}
 		setupNodes()
+		if !createEncoder() {
+			showStatus("Unable to create encoder")
+			return
+		}
+		if !createDecoder() {
+			showStatus("Unable to create decoder")
+			return
+		}
 		do {
 			try engine.start()
 		} catch {
@@ -156,6 +190,11 @@ struct ContentView: View {
 		}
 	}
 	func transmitMessage(_ text : String) {
+		var payload = [CChar](repeating: 0, count: 256)
+		text.withCString { _ = strncpy(&payload, $0, 256) }
+		initEncoder(&payload)
+		listening = false
+		showStatus("Transmitting")
 	}
 	@ObservedObject var state: MyState
 	var body: some View {
