@@ -82,24 +82,22 @@ struct ContentView: View {
 		let desiredFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 8000, channels: 1, interleaved: false)!
 		let inputFormat = engine.inputNode.outputFormat(forBus: 0)
 		let converter = AVAudioConverter(from: inputFormat, to: desiredFormat)!
-		let outputBuffer = AVAudioPCMBuffer(pcmFormat: desiredFormat, frameCapacity: AVAudioFrameCount(desiredFormat.sampleRate))!
+		let resampled = AVAudioPCMBuffer(pcmFormat: desiredFormat, frameCapacity: AVAudioFrameCount(desiredFormat.sampleRate))!
 		print("input rate: \(inputFormat.sampleRate)")
 		let sink = AVAudioSinkNode { _, count, list -> OSStatus in
-			let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, bufferListNoCopy: list)!
-			measureRecording.printRate(Int(inputBuffer.frameLength), "recording")
+			measureRecording.printRate(Int(count), "recording")
 			var haveData = true
-			let inputBlock: AVAudioConverterInputBlock = { _, inputStatus in
+			var error: NSError? = nil
+			converter.convert(to: resampled, error: &error) { _, inputStatus in
 				if haveData {
-					inputStatus.pointee = .haveData
 					haveData = false
-					return inputBuffer
+					inputStatus.pointee = .haveData
+					return AVAudioPCMBuffer(pcmFormat: inputFormat, bufferListNoCopy: list)
 				}
 				inputStatus.pointee = .noDataNow
 				return nil
 			}
-			var error: NSError? = nil
-			converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
-			measureResampling.printRate(Int(outputBuffer.frameLength), "resampled")
+			measureResampling.printRate(Int(resampled.frameLength), "resampled")
 			return noErr
 		}
 		engine.attach(sink)
